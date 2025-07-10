@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Pong</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        #gameContainer {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        canvas {
+            border: 2px solid #fff;
+            background: #000;
+            display: block;
+            margin: 20px auto;
+        }
+
+        #controls {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #333;
+            border-radius: 10px;
+        }
+
+        #serverStatus {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .connected { background: #2d5a27; }
+        .disconnected { background: #5a2727; }
+        .waiting { background: #5a5a27; }
+
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #0080ff;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #666;
+            background: #222;
+            color: white;
+            border-radius: 3px;
+        }
+
+        .score {
+            font-size: 36px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .instructions {
+            margin: 20px 0;
+            line-height: 1.6;
+        }
+
+        #serverCode {
+            background: #222;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #666;
+        }
+
+        .copy-button {
+            background: #28a745;
+            margin-top: 10px;
+        }
+
+        .copy-button:hover {
+            background: #34ce57;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏓 Multiplayer Pong</h1>
+
+    <div id="gameContainer">
+        <div id="serverStatus" class="disconnected">Not Connected</div>
+        <div class="score">
+            <span id="player1Score">0</span> - <span id="player2Score">0</span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    </div>
+
+    <div id="controls">
+        <div>
+            <h3>Connection</h3>
+            <input type="text" id="serverUrl" placeholder="ws://localhost:8080" value="ws://localhost:8080">
+            <button id="connectBtn">Connect to Game</button>
+            <button id="hostBtn">Host New Game</button>
+            <button id="newGameBtn" disabled>New Game</button>
+        </div>
+
+        <div class="instructions">
+            <h3>How to Play</h3>
+            <p><strong>Controls:</strong> Use W/S keys (Player 1) or Up/Down arrows (Player 2)</p>
+            <p><strong>Important:</strong> Click on the game area first to enable controls!</p>
+            <p><strong>Multiplayer:</strong> One player hosts a game, others connect using the server URL</p>
+            <p><strong>Objective:</strong> First to 10 points wins!</p>
+        </div>
+
+        <div id="serverSetup" style="display: none;">
+            <h3>Server Setup</h3>
+            <p>To host a game, you need to run the WebSocket server. Copy this code into a file called <code>server.js</code> and run <code>node server.js</code>:</p>
+            <div id="serverCode">const WebSocket = require('ws');
+
+const port = 8080; // Port for the WebSocket server
+const host = "0.0.0.0"; // Host for the WebSocket server
+const server = new WebSocket.Server({ port: port, host: host });
+
+let gameState = {
+    ball: { x: 400, y: 200, dx: 5, dy: 3, radius: 8 },
+    paddle1: { x: 20, y: 150, width: 10, height: 100 },
+    paddle2: { x: 770, y: 150, width: 10, height: 100 },
+    score1: 0,
+    score2: 0,
+    gameStarted: false,
+    ballSpeed: 5, // Track current ball speed
+    speedIncrement: 0.3 // How much to increase speed each hit
+};
+
+let players = [];
+let gameInterval;
+
+function broadcast(data) {
+    players.forEach(player => {
+        if (player.ws.readyState === WebSocket.OPEN) {
+            player.ws.send(JSON.stringify(data));
+        }
+    });
+}
+
+function updateGame() {
+    if (!gameState.gameStarted || players.length < 2) return;
+
+    // Update ball position
+    gameState.ball.x += gameState.ball.dx;
+    gameState.ball.y += gameState.ball.dy;
+
+    // Ball collision with top/bottom walls
+    if (gameState.ball.y <= gameState.ball.radius ||
+        gameState.ball.y >= 400 - gameState.ball.radius) {
+        gameState.ball.dy = -gameState.ball.dy;
+    }
+
+    // Ball collision with paddles
+    const ball = gameState.ball;
+    const p1 = gameState.paddle1;
+    const p2 = gameState.paddle2;
+
+    // Left paddle collision
+    if (ball.x - ball.radius <= p1.x + p1.width &&
+        ball.y >= p1.y && ball.y <= p1.y + p1.height &&
+        ball.dx < 0) {
+        ball.dx = -ball.dx;
+        ball.x = p1.x + p1.width + ball.radius;
+        // Increase ball speed on paddle hit
+        gameState.ballSpeed += gameState.speedIncrement;
+        const speedMultiplier = gameState.ballSpeed / 5; // 5 is the initial speed
+        ball.dx = ball.dx > 0 ? gameState.ballSpeed : -gameState.ballSpeed;
+        ball.dy = ball.dy * speedMultiplier;
+    }
+
+    // Right paddle collision
+    if (ball.x + ball.radius >= p2.x &&
+        ball.y >= p2.y && ball.y <= p2.y + p2.height &&
+        ball.dx > 0) {
+        ball.dx = -ball.dx;
+        ball.x = p2.x - ball.radius;
+        // Increase ball speed on paddle hit
+        gameState.ballSpeed += gameState.speedIncrement;
+        const speedMultiplier = gameState.ballSpeed / 5; // 5 is the initial speed
+        ball.dx = ball.dx > 0 ? gameState.ballSpeed : -gameState.ballSpeed;
+        ball.dy = ball.dy * speedMultiplier;
+    }
+
+    // Scoring
+    if (ball.x < 0) {
+        gameState.score2++;
+        resetBall();
+    } else if (ball.x > 800) {
+        gameState.score1++;
+        resetBall();
+    }
+
+    // Check for game end
+    if (gameState.score1 >= 10 || gameState.score2 >= 10) {
+        gameState.gameStarted = false;
+        broadcast({ type: 'gameEnd', winner: gameState.score1 >= 10 ? 1 : 2 });
+    }
+
+    broadcast({ type: 'gameUpdate', gameState });
+}
+
+function resetBall() {
+    gameState.ball.x = 400;
+    gameState.ball.y = 200;
+    // Reset ball speed to initial value on scoring
+    gameState.ballSpeed = 5;
+    gameState.ball.dx = Math.random() > 0.5 ? 5 : -5;
+    gameState.ball.dy = (Math.random() - 0.5) * 6;
+}
+
+function resetGame() {
+    gameState.score1 = 0;
+    gameState.score2 = 0;
+    gameState.ballSpeed = 5;
+    resetBall();
+    gameState.gameStarted = players.length === 2;
+    broadcast({ type: 'gameReset' });
+}
+
+server.on('connection', (ws) => {
+    console.log('New player connected');
+
+    const playerId = players.length < 2 ? players.length + 1 : null;
+
+    if (playerId) {
+        players.push({ ws, id: playerId });
+        ws.send(JSON.stringify({ type: 'playerAssigned', playerId }));
+
+        if (players.length === 2) {
+            gameState.gameStarted = true;
+            broadcast({ type: 'gameStart' });
+            gameInterval = setInterval(updateGame, 1000/60);
+        }
+    } else {
+        ws.send(JSON.stringify({ type: 'gameFull' }));
+        ws.close();
+    }
+
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+
+            if (data.type === 'paddleUpdate') {
+                const player = players.find(p => p.ws === ws);
+                if (player) {
+                    if (player.id === 1) {
+                        gameState.paddle1.y = Math.max(0, Math.min(300, data.y));
+                    } else if (player.id === 2) {
+                        gameState.paddle2.y = Math.max(0, Math.min(300, data.y));
+                    }
+                }
+            } else if (data.type === 'newGame') {
+                // Allow any connected player to reset the game
+                resetGame();
+            }
+        } catch (e) {
+            console.error('Invalid message:', e);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log('Player disconnected');
+        players = players.filter(p => p.ws !== ws);
+
+        if (players.length < 2) {
+            gameState.gameStarted = false;
+            if (gameInterval) {
+                clearInterval(gameInterval);
+                gameInterval = null;
+            }
+        }
+
+        if (players.length === 0) {
+            gameState.score1 = 0;
+            gameState.score2 = 0;
+            resetBall();
+        }
+    });
+});
+
+console.log(`Pong WebSocket server is running on ws://${host}:${port}`);</div>
+            <button class="copy-button" onclick="copyServerCode()">Copy Server Code</button>
+            <p>Then install WebSocket dependency: <code>npm install ws</code></p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const serverStatus = document.getElementById('serverStatus');
+        const connectBtn = document.getElementById('connectBtn');
+        const hostBtn = document.getElementById('hostBtn');
+        const newGameBtn = document.getElementById('newGameBtn');
+        const serverUrl = document.getElementById('serverUrl');
+        const serverSetup = document.getElementById('serverSetup');
+        const player1Score = document.getElementById('player1Score');
+        const player2Score = document.getElementById('player2Score');
+
+        let ws = null;
+        let playerId = null;
+        let gameState = {
+            ball: { x: 400, y: 200, dx: 5, dy: 3, radius: 8 },
+            paddle1: { x: 20, y: 150, width: 10, height: 100 },
+            paddle2: { x: 770, y: 150, width: 10, height: 100 },
+            score1: 0,
+            score2: 0,
+            gameStarted: false,
+            ballSpeed: 5,
+            speedIncrement: 0.3
+        };
+
+        let keys = {};
+
+        // Input handling
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            // Prevent default behavior for game keys to avoid page scrolling
+            if (['w', 'W', 's', 'S', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+            // Prevent default behavior for game keys
+            if (['w', 'W', 's', 'S', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        function updatePaddles() {
+            if (!ws || !playerId || ws.readyState !== WebSocket.OPEN) return;
+
+            let currentY = playerId === 1 ? gameState.paddle1.y : gameState.paddle2.y;
+            let newY = currentY;
+            let moved = false;
+
+            if (playerId === 1) {
+                if (keys['w'] || keys['W']) {
+                    newY = Math.max(0, currentY - 7);
+                    moved = true;
+                }
+                if (keys['s'] || keys['S']) {
+                    newY = Math.min(300, currentY + 7);
+                    moved = true;
+                }
+            } else if (playerId === 2) {
+                if (keys['ArrowUp']) {
+                    newY = Math.max(0, currentY - 7);
+                    moved = true;
+                }
+                if (keys['ArrowDown']) {
+                    newY = Math.min(300, currentY + 7);
+                    moved = true;
+                }
+            }
+
+            if (moved && newY !== currentY) {
+                ws.send(JSON.stringify({
+                    type: 'paddleUpdate',
+                    y: newY
+                }));
+            }
+        }
+
+        function render() {
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw center line
+            ctx.strokeStyle = '#fff';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw paddles
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(gameState.paddle1.x, gameState.paddle1.y,
+                        gameState.paddle1.width, gameState.paddle1.height);
+            ctx.fillRect(gameState.paddle2.x, gameState.paddle2.y,
+                        gameState.paddle2.width, gameState.paddle2.height);
+
+            // Draw ball
+            ctx.beginPath();
+            ctx.arc(gameState.ball.x, gameState.ball.y, gameState.ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw player indicators
+            if (playerId === 1) {
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(gameState.paddle1.x - 5, gameState.paddle1.y - 5,
+                           gameState.paddle1.width + 10, 5);
+
+                // Show key press indicators for Player 1
+                ctx.fillStyle = keys['w'] || keys['W'] ? '#ff0000' : '#333333';
+                ctx.fillRect(10, 10, 20, 20);
+                ctx.fillStyle = keys['s'] || keys['S'] ? '#ff0000' : '#333333';
+                ctx.fillRect(10, 35, 20, 20);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px monospace';
+                ctx.fillText('W', 17, 25);
+                ctx.fillText('S', 17, 50);
+            } else if (playerId === 2) {
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(gameState.paddle2.x - 5, gameState.paddle2.y - 5,
+                           gameState.paddle2.width + 10, 5);
+
+                // Show key press indicators for Player 2
+                ctx.fillStyle = keys['ArrowUp'] ? '#ff0000' : '#333333';
+                ctx.fillRect(770, 10, 20, 20);
+                ctx.fillStyle = keys['ArrowDown'] ? '#ff0000' : '#333333';
+                ctx.fillRect(770, 35, 20, 20);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px monospace';
+                ctx.fillText('↑', 777, 25);
+                ctx.fillText('↓', 777, 50);
+            }
+
+            updatePaddles();
+            requestAnimationFrame(render);
+        }
+
+        function connect() {
+            const url = serverUrl.value.trim();
+            if (!url) return;
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    serverStatus.textContent = 'Connected - Waiting for players...';
+                    serverStatus.className = 'waiting';
+                    connectBtn.disabled = true;
+                    newGameBtn.disabled = false;
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    switch (data.type) {
+                        case 'playerAssigned':
+                            playerId = data.playerId;
+                            serverStatus.textContent = `Connected as Player ${playerId} - Waiting for opponent...`;
+                            break;
+
+                        case 'gameStart':
+                            serverStatus.textContent = `Game Started! You are Player ${playerId}`;
+                            serverStatus.className = 'connected';
+                            break;
+
+                        case 'gameUpdate':
+                            gameState = data.gameState;
+                            player1Score.textContent = gameState.score1;
+                            player2Score.textContent = gameState.score2;
+                            break;
+
+                        case 'gameEnd':
+                            const winner = data.winner;
+                            serverStatus.textContent = `Game Over! Player ${winner} wins!`;
+                            alert(`Game Over! Player ${winner} wins!`);
+                            break;
+
+                        case 'gameReset':
+                            serverStatus.textContent = `Game Reset! You are Player ${playerId}`;
+                            serverStatus.className = 'connected';
+                            break;
+
+                        case 'gameFull':
+                            alert('Game is full! Please try again later.');
+                            ws.close();
+                            break;
+                    }
+                };
+
+                ws.onclose = () => {
+                    serverStatus.textContent = 'Disconnected';
+                    serverStatus.className = 'disconnected';
+                    connectBtn.disabled = false;
+                    newGameBtn.disabled = true;
+                    playerId = null;
+                };
+
+                ws.onerror = (error) => {
+                    serverStatus.textContent = 'Connection failed';
+                    serverStatus.className = 'disconnected';
+                    connectBtn.disabled = false;
+                    newGameBtn.disabled = true;
+                };
+
+            } catch (error) {
+                alert('Invalid WebSocket URL');
+            }
+        }
+
+        function showServerSetup() {
+            serverSetup.style.display = serverSetup.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function copyServerCode() {
+            const serverCode = document.getElementById('serverCode').textContent;
+            navigator.clipboard.writeText(serverCode).then(() => {
+                alert('Server code copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = serverCode;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Server code copied to clipboard!');
+            });
+        }
+
+        function newGame() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'newGame' }));
+            }
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        hostBtn.addEventListener('click', showServerSetup);
+        newGameBtn.addEventListener('click', newGame);
+
+        // Allow Enter key to connect
+        serverUrl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                connect();
+            }
+        });
+
+        // Start rendering
+        render();
+
+        // Focus on the page for better keyboard input
+        window.addEventListener('load', () => {
+            document.body.focus();
+        });
+
+        // Ensure focus when clicking on canvas
+        canvas.addEventListener('click', () => {
+            canvas.focus();
+        });
+
+        // Make canvas focusable
+        canvas.setAttribute('tabindex', '0');
+    </script>
+</body>
+</html>

@@ -1,0 +1,739 @@
+<!--
+MIT License
+
+Copyright (c) 2025 Drake Axelrod
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!doctype html>
+<html lang="en" data-theme="night">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1a202c" />
+    <title>Snake Game</title>
+    <meta name="description" content="A classic Snake game in a single HTML file using React and Phaser." />
+    <meta name="author" content="Drake Axelrod" />
+    <meta name="keywords" content="HTML, CSS, JavaScript, React, Phaser, Tailwind, Snake, Game" />
+    <meta name="robots" content="index, follow" />
+    <!-- Favicon -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='90'%3E%F0%9F%90%8D%3C/text%3E%3C/svg%3E" />
+
+    <!--
+    ==================================================
+    Libraries (CDNs)
+    ==================================================
+    -->
+    <!-- Font performance improvements -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" defer></script>
+    <!-- DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <!-- DaisyUI Themes -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    <!-- React  -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" defer></script>
+    <!-- React DOM -->
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" defer></script>
+    <!-- Babel -->
+    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js" defer></script>
+    <!-- Phaser 3 -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js" defer></script>
+    <!-- Tone.js -->
+    <script src="https://unpkg.com/tone@14.7.77/build/Tone.js" defer></script>
+    <!-- Inter Font -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/inter-ui@3.19.3/inter.css" />
+    <!-- Lilex Nerd Font -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@v3.3.0/build/lilex-nerd-font.css" />
+    <!-- Font Awesome -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+      crossorigin />
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+      }
+      #phaser-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 100%;
+      }
+      canvas {
+        border-radius: 0.5rem;
+        box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+      }
+    </style>
+  </head>
+  <body class="bg-base-300 text-base-content">
+    <noscript><strong>JavaScript is required to run this app.</strong></noscript>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useRef, useMemo, useCallback } = React
+
+      // --- Constants ---
+      const GRID_SIZE = 20
+      const BOARD_SIZE = 30 // 30x30 grid
+      const GAME_WIDTH = GRID_SIZE * BOARD_SIZE
+      const GAME_HEIGHT = GRID_SIZE * BOARD_SIZE
+
+      const SPEEDS = {
+        Slow: 150,
+        Normal: 100,
+        Fast: 60,
+      }
+
+      // --- LocalStorage Hook ---
+      const useLocalStorage = (key, initialValue) => {
+        const [storedValue, setStoredValue] = useState(() => {
+          try {
+            const item = window.localStorage.getItem(key)
+            return item ? JSON.parse(item) : initialValue
+          } catch (error) {
+            console.error(error)
+            return initialValue
+          }
+        })
+
+        const setValue = value => {
+          try {
+            const valueToStore = value instanceof Function ? value(storedValue) : value
+            setStoredValue(valueToStore)
+            window.localStorage.setItem(key, JSON.stringify(valueToStore))
+          } catch (error) {
+            console.error(error)
+          }
+        }
+        return [storedValue, setValue]
+      }
+
+      // --- Phaser Game Scene ---
+      class GameScene extends Phaser.Scene {
+        constructor() {
+          super({ key: "GameScene" })
+          this.snake = null
+          this.food = null
+          this.cursors = null
+          this.direction = "RIGHT"
+          this.nextDirection = "RIGHT"
+          this.lastMoveTime = 0
+          this.score = 0
+          this.isGameOver = false
+          this.isPaused = false
+        }
+
+        init(data) {
+          this.onGameOver = data.onGameOver
+          this.onScoreUpdate = data.onScoreUpdate
+          this.onPause = data.onPause
+          this.onResume = data.onResume
+          this.speed = data.speed
+          this.soundEnabled = data.soundEnabled
+          this.direction = "RIGHT"
+          this.nextDirection = "RIGHT"
+          this.score = 0
+          this.isGameOver = false
+          this.isPaused = false
+        }
+
+        create() {
+          // Pause overlay
+          this.pauseText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'PAUSED', {
+            fontFamily: 'Arial',
+            fontSize: '48px',
+            color: '#ffffff',
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            padding: { x: 20, y: 10 }
+          }).setOrigin(0.5).setVisible(false);
+
+          // Sounds
+          this.eatSound = new Tone.Synth({ oscillator: { type: "triangle" } }).toDestination()
+          this.gameOverSound = new Tone.Synth({
+            oscillator: { type: "sine" },
+            envelope: { attack: 0.01, decay: 0.4, sustain: 0, release: 0.1 },
+          }).toDestination()
+
+          // Snake
+          this.snake = []
+          const startY = Math.floor(BOARD_SIZE / 2) * GRID_SIZE
+          for (let i = 0; i < 3; i++) {
+            const x = (5 - i) * GRID_SIZE
+            this.snake.push(
+              this.add
+                .circle(
+                  x + GRID_SIZE / 2,
+                  startY + GRID_SIZE / 2,
+                  GRID_SIZE / 2,
+                  i === 0 ? 0x00ff00 : 0x00aa00
+                )
+            )
+          }
+
+          // Food
+          this.spawnFood()
+
+          // Input
+          this.cursors = this.input.keyboard.createCursorKeys()
+          this.input.keyboard.on("keydown-W", () => {
+            if (this.direction !== "DOWN") this.nextDirection = "UP"
+          })
+          this.input.keyboard.on("keydown-S", () => {
+            if (this.direction !== "UP") this.nextDirection = "DOWN"
+          })
+          this.input.keyboard.on("keydown-A", () => {
+            if (this.direction !== "RIGHT") this.nextDirection = "LEFT"
+          })
+          this.input.keyboard.on("keydown-D", () => {
+            if (this.direction !== "LEFT") this.nextDirection = "RIGHT"
+          })
+
+          this.input.keyboard.on('keydown-P', this.togglePause, this);
+          this.input.keyboard.on('keydown-ESC', this.togglePause, this);
+        }
+
+        togglePause() {
+            this.isPaused = !this.isPaused;
+            this.pauseText.setVisible(this.isPaused);
+            if (this.isPaused) {
+                this.onPause();
+            } else {
+                this.onResume();
+            }
+        }
+
+        playSound(sound, note, duration) {
+            if (this.soundEnabled) {
+                sound.triggerAttackRelease(note, duration)
+            }
+        }
+
+        spawnFood() {
+          let foodX, foodY
+          let onSnake = true
+
+          while (onSnake) {
+            foodX = Phaser.Math.Between(0, BOARD_SIZE - 1) * GRID_SIZE
+            foodY = Phaser.Math.Between(0, BOARD_SIZE - 1) * GRID_SIZE
+            onSnake = this.snake.some(segment => segment.x - GRID_SIZE/2 === foodX && segment.y - GRID_SIZE/2 === foodY)
+          }
+
+          if (this.food) this.food.destroy()
+          this.food = this.add.circle(foodX + GRID_SIZE / 2, foodY + GRID_SIZE / 2, GRID_SIZE / 2.5, 0xff0000)
+        }
+
+        update(time) {
+          if (this.isGameOver || this.isPaused) return
+
+          if (time >= this.lastMoveTime + this.speed) {
+            this.handleInput()
+            this.moveSnake()
+            this.checkCollision()
+            this.lastMoveTime = time
+          }
+        }
+
+        handleInput() {
+          if (this.cursors.left.isDown && this.direction !== "RIGHT") {
+            this.nextDirection = "LEFT"
+          } else if (this.cursors.right.isDown && this.direction !== "LEFT") {
+            this.nextDirection = "RIGHT"
+          } else if (this.cursors.up.isDown && this.direction !== "DOWN") {
+            this.nextDirection = "UP"
+          } else if (this.cursors.down.isDown && this.direction !== "UP") {
+            this.nextDirection = "DOWN"
+          }
+        }
+
+        moveSnake() {
+          this.direction = this.nextDirection
+          const head = this.snake[0]
+          let newX = head.x
+          let newY = head.y
+
+          switch (this.direction) {
+            case "UP":
+              newY -= GRID_SIZE
+              break
+            case "DOWN":
+              newY += GRID_SIZE
+              break
+            case "LEFT":
+              newX -= GRID_SIZE
+              break
+            case "RIGHT":
+              newX += GRID_SIZE
+              break
+          }
+
+          const newHead = this.add
+            .circle(newX, newY, GRID_SIZE / 2, 0x00ff00)
+          this.snake.unshift(newHead)
+
+          // Check for food
+          if (
+            Math.abs(newHead.x - this.food.x) < GRID_SIZE / 2 &&
+            Math.abs(newHead.y - this.food.y) < GRID_SIZE / 2
+          ) {
+            this.score++
+            this.onScoreUpdate(this.score)
+            this.playSound(this.eatSound, "C5", "8n")
+            this.spawnFood()
+          } else {
+            const tail = this.snake.pop()
+            tail.destroy()
+          }
+
+          // Recolor snake
+          this.snake.forEach((segment, index) => {
+            segment.fillColor = index === 0 ? 0x00ff00 : 0x00aa00
+          })
+        }
+
+        checkCollision() {
+          const head = this.snake[0]
+          const headRadius = head.radius;
+
+          // Wall collision
+          if (
+            head.x - headRadius < 0 ||
+            head.x + headRadius > GAME_WIDTH ||
+            head.y - headRadius < 0 ||
+            head.y + headRadius > GAME_HEIGHT
+          ) {
+            this.endGame()
+            return
+          }
+
+          // Self collision
+          for (let i = 1; i < this.snake.length; i++) {
+            if (Phaser.Math.Distance.Between(head.x, head.y, this.snake[i].x, this.snake[i].y) < headRadius) {
+              this.endGame()
+              return
+            }
+          }
+        }
+
+        endGame() {
+          if (this.isGameOver) return
+          this.isGameOver = true
+          this.playSound(this.gameOverSound, "C3", "0.5")
+          this.cameras.main.shake(300, 0.01)
+          this.time.delayedCall(500, () => {
+            this.onGameOver(this.score)
+          })
+        }
+      }
+
+      // --- React Components ---
+
+      const SettingsModal = ({ isOpen, onClose, settings, updateSettings, clearData }) => {
+        if (!isOpen) return null
+
+        const handleSettingChange = (key, value) => {
+          updateSettings(prev => ({ ...prev, [key]: value }))
+        }
+
+        const DAISY_THEMES = [
+            "light", "dark", "cupcake", "bumblebee", "emerald", "corporate",
+            "synthwave", "retro", "cyberpunk", "valentine", "halloween", "garden",
+            "forest", "aqua", "lofi", "pastel", "fantasy", "wireframe", "black",
+            "luxury", "dracula", "cmyk", "autumn", "business", "acid", "lemonade",
+            "night", "coffee", "winter"
+        ];
+
+        return (
+          <div className="modal modal-open">
+            <div className="modal-box backdrop-blur-sm">
+              <h3 className="font-bold text-2xl mb-4">Settings</h3>
+
+              <div className="form-control w-full">
+                <label className="label">
+                  <span className="label-text">Theme</span>
+                </label>
+                <select
+                  className="select select-bordered"
+                  value={settings.theme}
+                  onChange={e => handleSettingChange('theme', e.target.value)}
+                >
+                  {DAISY_THEMES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div className="form-control w-full mt-4">
+                <label className="label">
+                  <span className="label-text">Game Speed</span>
+                </label>
+                <select
+                  className="select select-bordered"
+                  value={settings.speed}
+                  onChange={e => handleSettingChange('speed', parseInt(e.target.value))}
+                >
+                  {Object.entries(SPEEDS).map(([name, val]) => (
+                    <option key={name} value={val}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-control mt-4">
+                <label className="cursor-pointer label">
+                  <span className="label-text">Enable Sound</span>
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-primary"
+                    checked={settings.soundEnabled}
+                    onChange={e => handleSettingChange('soundEnabled', e.target.checked)}
+                  />
+                </label>
+              </div>
+
+              <div className="divider"></div>
+
+              <button className="btn btn-error btn-outline w-full transition-transform hover:scale-105" onClick={clearData}>
+                <i className="fa-solid fa-trash"></i> Clear All Data
+              </button>
+
+              <div className="modal-action">
+                <button className="btn transition-transform hover:scale-105" onClick={onClose}>Done</button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      const HighScores = ({ scores, currentUser }) => {
+        const rankedScores = useMemo(() => scores.slice(0, 10), [scores])
+
+        return (
+          <div className="card bg-base-100 shadow-xl w-full max-w-md transition-all duration-300 hover:shadow-2xl">
+            <div className="card-body">
+              <h2 className="card-title text-2xl justify-center mb-4">
+                <i className="fa-solid fa-trophy text-yellow-400"></i> High Scores
+              </h2>
+              <div className="overflow-x-auto">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Rank</th>
+                      <th>Name</th>
+                      <th>Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankedScores.length > 0 ? (
+                      rankedScores.map((s, i) => (
+                        <tr
+                          key={`${s.user}-${i}`}
+                          className={s.user === currentUser ? "bg-primary text-primary-content" : ""}>
+                          <th>{i + 1}</th>
+                          <td>{s.user}</td>
+                          <td>{s.score}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="3" className="text-center">
+                          No scores yet. Be the first!
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      const MainMenu = ({ onPlay, username, setUsername, highScores, onSettingsOpen }) => (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 gap-8">
+          <div className="absolute top-4 right-4">
+            <button className="btn btn-square btn-ghost transition-transform hover:scale-110" onClick={onSettingsOpen}>
+              <i className="fa-solid fa-gear text-2xl"></i>
+            </button>
+          </div>
+          <div className="text-center">
+            <h1 className="text-7xl font-bold text-primary font-mono">SNAKE</h1>
+            <p className="text-lg text-base-content/80">A classic reborn</p>
+          </div>
+
+          <div className="card bg-base-100 shadow-xl w-full max-w-sm">
+            <div className="card-body">
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Enter Your Name</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Player"
+                  className="input input-bordered"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                />
+              </div>
+              <div className="card-actions justify-center mt-4">
+                <button
+                  className="btn btn-primary btn-wide text-lg transition-transform hover:scale-105"
+                  onClick={onPlay}
+                  disabled={!username.trim()}>
+                  <i className="fa-solid fa-play"></i> Play
+                </button>
+              </div>
+            </div>
+          </div>
+          <HighScores scores={highScores} currentUser={username} />
+        </div>
+      )
+
+      const GameOver = ({ score, onRestart, onMenu, isNewHighScore }) => (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="card bg-base-100 shadow-xl w-full max-w-sm text-center animate-fade-in">
+            <div className="card-body">
+              <h2 className="card-title text-4xl justify-center">Game Over</h2>
+              {isNewHighScore && (
+                <div className="text-lg text-success font-bold mt-2 animate-pulse">
+                  <i className="fa-solid fa-star"></i> New High Score! <i className="fa-solid fa-star"></i>
+                </div>
+              )}
+              <p className="text-xl my-4">Your Score: {score}</p>
+              <div className="card-actions justify-center gap-2">
+                <button className="btn btn-primary transition-transform hover:scale-105" onClick={onRestart}>
+                  <i className="fa-solid fa-rotate-right"></i> Play Again
+                </button>
+                <button className="btn btn-secondary transition-transform hover:scale-105" onClick={onMenu}>
+                  <i className="fa-solid fa-bars"></i> Main Menu
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+
+      const GameUI = ({ score, isPaused }) => (
+        <>
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-base-100/50 backdrop-blur-sm px-6 py-2 rounded-box shadow-lg z-10">
+            <div className="text-2xl font-bold">Score: {score}</div>
+          </div>
+          {isPaused && (
+            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 text-lg text-base-content/80">
+              Press 'P' or 'ESC' to resume
+            </div>
+          )}
+        </>
+      )
+
+      // --- Custom Hook for Game Logic ---
+      const useGame = () => {
+        const [gameState, setGameState] = useState("menu") // 'menu', 'playing', 'gameOver'
+        const [username, setUsername] = useLocalStorage("snake-username", "")
+        const [highScores, setHighScores] = useLocalStorage("snake-highscores", [])
+
+        const [settings, setSettings] = useLocalStorage("snake-settings", {
+            theme: "night",
+            speed: SPEEDS.Normal,
+            soundEnabled: true,
+        })
+
+        const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+        const [score, setScore] = useState(0)
+        const [finalScore, setFinalScore] = useState(0)
+        const [isNewHighScore, setIsNewHighScore] = useState(false)
+        const [isPaused, setIsPaused] = useState(false);
+
+        useEffect(() => {
+            document.documentElement.setAttribute("data-theme", settings.theme)
+        }, [settings.theme])
+
+        const handlePlay = useCallback(() => {
+          if (!username.trim()) return
+          setScore(0)
+          setIsNewHighScore(false)
+          setGameState("playing")
+        }, [username])
+
+        const handleGameOver = useCallback((finalScore) => {
+          setFinalScore(finalScore)
+
+          const oldHighScore = highScores.find(s => s.user === username)?.score || 0
+          if (finalScore > oldHighScore) {
+            setIsNewHighScore(true)
+          }
+
+          const newScores = [...highScores]
+          const userScoreIndex = newScores.findIndex(s => s.user === username)
+
+          if (userScoreIndex > -1) {
+            if (finalScore > newScores[userScoreIndex].score) {
+              newScores[userScoreIndex].score = finalScore
+            }
+          } else {
+            newScores.push({ user: username, score: finalScore })
+          }
+
+          newScores.sort((a, b) => b.score - a.score)
+          setHighScores(newScores.slice(0, 10))
+          setGameState("gameOver")
+        }, [highScores, username, setHighScores])
+
+        const handleRestart = useCallback(() => {
+          setScore(0)
+          setIsNewHighScore(false)
+          setGameState("playing")
+        }, [])
+
+        const handleMenu = useCallback(() => {
+          setGameState("menu")
+        }, [])
+
+        const handleClearData = useCallback(() => {
+            if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
+                setHighScores([])
+                setUsername("")
+                setSettings({
+                    theme: "night",
+                    speed: SPEEDS.Normal,
+                    soundEnabled: true,
+                })
+                setIsSettingsOpen(false)
+            }
+        }, [setHighScores, setUsername, setSettings])
+
+        return {
+          gameState, setGameState,
+          username, setUsername,
+          highScores,
+          settings, setSettings,
+          isSettingsOpen, setIsSettingsOpen,
+          score, setScore,
+          finalScore,
+          isNewHighScore,
+          isPaused, setIsPaused,
+          handlePlay, handleGameOver, handleRestart, handleMenu, handleClearData
+        }
+      }
+
+      // --- Main App Component ---
+      const App = () => {
+        const game = useGame()
+        const gameInstance = useRef(null)
+
+        useEffect(() => {
+          if (game.gameState === "playing") {
+            game.setIsPaused(false)
+            if (!gameInstance.current) {
+              const config = {
+                type: Phaser.AUTO,
+                width: GAME_WIDTH,
+                height: GAME_HEIGHT,
+                parent: "phaser-container",
+                backgroundColor: "#0d1117",
+                scene: [GameScene],
+                physics: {
+                  default: "arcade",
+                  arcade: {
+                    gravity: { y: 0 },
+                  },
+                },
+              }
+              gameInstance.current = new Phaser.Game(config)
+              gameInstance.current.scene.start("GameScene", {
+                onGameOver: game.handleGameOver,
+                onScoreUpdate: game.setScore,
+                onPause: () => game.setIsPaused(true),
+                onResume: () => game.setIsPaused(false),
+                speed: game.settings.speed,
+                soundEnabled: game.settings.soundEnabled,
+              })
+            } else {
+              const scene = gameInstance.current.scene.getScene("GameScene")
+              scene.scene.restart({
+                onGameOver: game.handleGameOver,
+                onScoreUpdate: game.setScore,
+                onPause: () => game.setIsPaused(true),
+                onResume: () => game.setIsPaused(false),
+                speed: game.settings.speed,
+                soundEnabled: game.settings.soundEnabled,
+              })
+            }
+          } else if (gameInstance.current) {
+            gameInstance.current.destroy(true)
+            gameInstance.current = null
+          }
+
+          return () => {
+            if (gameInstance.current) {
+              gameInstance.current.destroy(true)
+              gameInstance.current = null
+            }
+          }
+        }, [game.gameState])
+
+        return (
+          <div className="w-full min-h-screen flex items-center justify-center">
+            <SettingsModal
+                isOpen={game.isSettingsOpen}
+                onClose={() => game.setIsSettingsOpen(false)}
+                settings={game.settings}
+                updateSettings={game.setSettings}
+                clearData={game.handleClearData}
+            />
+            {game.gameState === "menu" && (
+              <MainMenu
+                onPlay={game.handlePlay}
+                username={game.username}
+                setUsername={game.setUsername}
+                highScores={game.highScores}
+                onSettingsOpen={() => game.setIsSettingsOpen(true)}
+              />
+            )}
+
+            {game.gameState === "playing" && (
+              <div className="w-full h-screen flex flex-col items-center justify-center relative">
+                <GameUI score={game.score} isPaused={game.isPaused} />
+                <div id="phaser-container"></div>
+              </div>
+            )}
+
+            {game.gameState === "gameOver" && (
+              <GameOver
+                score={game.finalScore}
+                onRestart={game.handleRestart}
+                onMenu={game.handleMenu}
+                isNewHighScore={game.isNewHighScore}
+              />
+            )}
+          </div>
+        )
+      }
+
+      // --- ReactDOM Render ---
+      const root = ReactDOM.createRoot(document.getElementById("root"))
+      root.render(<App />)
+    </script>
+  </body>
+</html>

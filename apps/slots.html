@@ -1,0 +1,571 @@
+<!--
+MIT License
+
+Copyright (c) 2025 Drake Axelrod
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!DOCTYPE html>
+<html lang="en" data-theme="synthwave">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f9fafb" />
+    <title>Single HTML File App Template</title>
+    <meta name="description" content="A minimal single-file web app built with React and Tailwind." />
+    <meta name="author" content="Drake Axelrod" />
+    <meta name="keywords" content="HTML, CSS, JavaScript, React, Tailwind, Single File App, Slot Machine" />
+    <meta name="robots" content="index, follow" />
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,{base64 encoded svg goes here}" />
+
+<!--
+==================================================
+Libraries (CDNs)
+==================================================
+-->
+<!-- Font performance improvements -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+<!-- Tailwind CSS -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" defer></script>
+<!-- DaisyUI -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<!-- DaisyUI Themes -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+<!-- React  -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" defer></script>
+<!-- React DOM -->
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" defer></script>
+<!-- Babel -->
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js" defer></script>
+<!-- Phaser 3 -->
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js" defer></script>
+<!-- Tone.js -->
+<script src="https://unpkg.com/tone@14.7.77/build/Tone.js" defer></script>
+<!-- Inter Font -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/inter-ui@3.19.3/inter.css" />
+<!-- Lilex Nerd Font -->
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@v3.3.0/build/lilex-nerd-font.css" />
+<!-- Font Awesome -->
+<link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+  crossorigin />
+  <style>
+    .reel-container {
+      overflow: hidden;
+      height: 240px; /* 3 symbols * 80px */
+      width: 80px;
+      background: oklch(var(--b2));
+      border: 4px solid oklch(var(--p));
+      border-radius: 0.5rem;
+      box-shadow: inset 0 0 10px #00000080;
+    }
+    .reel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: transform 1s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+    .symbol {
+      font-size: 3rem;
+      width: 80px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: oklch(var(--nc));
+    }
+    .symbol.win {
+        animation: win-animation 1s ease-in-out;
+        text-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+    }
+    @keyframes win-animation {
+        0%, 100% { transform: scale(1); filter: brightness(1); }
+        50% { transform: scale(1.25) rotate(-5deg); filter: brightness(1.75); }
+    }
+    /* Make the reel animation smoother */
+    .reel {
+        transition: transform 1s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+  </style>
+  </head>
+  <body>
+    <noscript><strong>JavaScript is required to run this app.</strong></noscript>
+    <div id="root"></div>
+    <script type="text/babel">
+      // Patch for legacy/broken localStorage data: migrate {version, data} objects to raw value
+      function migrateLocalStorageKey(key, defaultValue) {
+        try {
+          const stored = localStorage.getItem(key);
+          if (!stored) return;
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === 'object' && 'version' in parsed && 'data' in parsed) {
+            localStorage.setItem(key, JSON.stringify(parsed.data));
+          }
+        } catch (e) {}
+      }
+      ['slotBalance','slotTheme','slotSettings','slotSpinLog','slotSpinCount'].forEach(key => migrateLocalStorageKey(key));
+
+      const SYMBOLS = [
+        { icon: "fa-lemon", value: "lemon", payout: { 2: 2, 3: 20, 4: 50, 5: 100 }, color: "text-yellow-400" },
+        { icon: "fa-clover", value: "clover", payout: { 2: 3, 3: 30, 4: 75, 5: 150 }, color: "text-green-400" },
+        { icon: "fa-bell", value: "bell", payout: { 3: 50, 4: 100, 5: 250 }, color: "text-orange-400" },
+        { icon: "fa-heart", value: "heart", payout: { 3: 75, 4: 150, 5: 400 }, color: "text-red-500" },
+        { icon: "fa-gem", value: "gem", payout: { 3: 100, 4: 250, 5: 750 }, color: "text-purple-400" },
+        { icon: "fa-dollar-sign", value: "dollar", payout: { 3: 250, 4: 1000, 5: 4000 }, color: "text-green-600" },
+        { icon: "fa-7", value: "seven", payout: { 3: 500, 4: 2500, 5: 12500 }, color: "text-red-700" },
+        { icon: "fa-star", value: "star", payout: { 2: 10, 3: 500, 4: 2000, 5: 10000 }, color: "text-yellow-500" }, // Wild
+      ];
+
+      // Reel strips defined for more realistic slot machine behavior
+      const REEL_STRIPS = [
+        ["star", "clover", "lemon", "bell", "clover", "heart", "lemon", "gem", "clover", "dollar", "lemon", "bell", "clover", "heart", "lemon", "clover", "seven", "lemon", "bell", "clover", "heart", "lemon", "gem", "clover", "lemon", "bell", "clover", "heart", "lemon"],
+        ["dollar", "heart", "clover", "bell", "lemon", "gem", "clover", "heart", "lemon", "bell", "clover", "star", "lemon", "heart", "clover", "bell", "lemon", "gem", "clover", "heart", "lemon", "bell", "clover", "seven", "lemon", "heart", "clover", "bell", "lemon"],
+        ["gem", "lemon", "heart", "clover", "bell", "lemon", "dollar", "clover", "heart", "lemon", "bell", "clover", "gem", "lemon", "star", "clover", "bell", "lemon", "heart", "clover", "seven", "lemon", "bell", "clover", "heart", "lemon", "gem", "clover", "lemon"],
+        ["bell", "clover", "lemon", "heart", "gem", "clover", "bell", "lemon", "dollar", "clover", "heart", "lemon", "bell", "clover", "star", "lemon", "gem", "clover", "heart", "lemon", "bell", "clover", "seven", "lemon", "heart", "clover", "bell", "lemon"],
+        ["lemon", "bell", "clover", "heart", "lemon", "gem", "clover", "dollar", "lemon", "bell", "clover", "heart", "lemon", "star", "clover", "seven", "lemon", "bell", "clover", "heart", "lemon", "gem", "clover", "lemon", "bell", "clover", "heart", "lemon"]
+      ];
+
+      const PAYLINES = [
+        [1, 1, 1, 1, 1], // Middle
+        [0, 0, 0, 0, 0], // Top
+        [2, 2, 2, 2, 2], // Bottom
+        [0, 1, 2, 1, 0], // V-shape
+        [2, 1, 0, 1, 2], // A-shape
+      ];
+
+      const THEMES = [ "synthwave", "retro", "cyberpunk", "valentine", "halloween", "aqua", "luxury", "dracula", "night", "coffee", "dim", "sunset" ];
+
+      // A custom hook to persist state in localStorage
+      const usePersistentState = (key, defaultValue) => {
+        const [state, setState] = React.useState(() => {
+          try {
+            const storedValue = localStorage.getItem(key);
+            if (storedValue !== null) return JSON.parse(storedValue);
+            return typeof defaultValue === "function" ? defaultValue() : defaultValue;
+          } catch (error) {
+            console.error("Error reading from localStorage", error);
+            return typeof defaultValue === "function" ? defaultValue() : defaultValue;
+          }
+        });
+
+        React.useEffect(() => {
+          try {
+            localStorage.setItem(key, JSON.stringify(state));
+          } catch (error) {
+            console.error("Error writing to localStorage", error);
+          }
+        }, [key, state]);
+
+        return [state, setState];
+      };
+
+      const Reel = ({ reelSymbols, position, isSpinning, winningSymbols }) => {
+        const reelLength = reelSymbols.length;
+        // Create a doubled reel strip for seamless looping
+        const extendedReel = [...reelSymbols, ...reelSymbols];
+
+        const style = {
+          transform: `translateY(calc(-${position * 80}px))`,
+          transition: isSpinning ? 'transform 0.1s linear' : 'transform 1s cubic-bezier(0.68, -0.55, 0.27, 1.55)',
+        };
+
+        return (
+          <div className="reel-container">
+            <div className="reel" style={style}>
+              {extendedReel.map((symbol, i) => {
+                // symbol may be an object or a string, so handle both
+                let symbolObj = typeof symbol === 'string' ? SYMBOLS.find(s => s.value === symbol) : symbol;
+                if (!symbolObj) {
+                  // fallback: show a question mark if symbol not found
+                  return (
+                    <div key={i} className={`symbol`}>
+                      ?
+                    </div>
+                  );
+                }
+                return (
+                  <div key={i} className={`symbol ${winningSymbols.includes(i % reelLength) ? 'win' : ''}`}>
+                    <i className={`fas ${symbolObj.icon} ${symbolObj.color}`}></i>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      };
+
+      const PayTable = () => (
+        <div className="modal-box bg-base-200">
+            <h3 className="font-bold text-lg text-secondary">Pay Table</h3>
+            <div className="py-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {SYMBOLS.map(symbol => (
+                    <div key={symbol.value} className="flex items-center justify-between p-2 bg-base-300 rounded-lg">
+                        <div className="flex items-center gap-3">
+                            <i className={`fas ${symbol.icon} ${symbol.color} text-3xl w-8 text-center`}></i>
+                            <span className="font-bold capitalize">{symbol.value}</span>
+                        </div>
+                        <div className="flex flex-col items-end text-sm">
+                            {Object.entries(symbol.payout).map(([count, amount]) => (
+                                <div key={count}><span className="opacity-70">x{count}</span> <span className="font-bold">{amount}</span></div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <p className="mt-4 text-sm italic text-center">* Payouts are per line. Star is WILD.</p>
+            <div className="modal-action">
+                <form method="dialog">
+                    <button className="btn btn-primary">Close</button>
+                </form>
+            </div>
+        </div>
+      );
+
+      const SettingsModal = ({ settings, onSettingsChange, onReset, spinLog }) => {
+        const [activeTab, setActiveTab] = React.useState('settings');
+
+        return (
+            <div className="modal-box bg-base-200 w-11/12 max-w-2xl">
+                <div role="tablist" className="tabs tabs-lifted">
+                    <a role="tab" className={`tab ${activeTab === 'settings' ? 'tab-active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</a>
+                    <a role="tab" className={`tab ${activeTab === 'log' ? 'tab-active' : ''}`} onClick={() => setActiveTab('log')}>Spin Log</a>
+                </div>
+
+                {activeTab === 'settings' && (
+                    <div className="py-4 space-y-4">
+                        <div className="form-control">
+                            <label className="label">
+                                <span className="label-text">Volume</span>
+                            </label>
+                            <input
+                                type="range"
+                                min="-40"
+                                max="0"
+                                value={settings.volume}
+                                onChange={(e) => onSettingsChange({ ...settings, volume: Number(e.target.value) })}
+                                className="range range-primary"
+                            />
+                        </div>
+                        <div className="form-control">
+                            <label className="label">
+                                <span className="label-text">Reset Game Data</span>
+                            </label>
+                            <button className="btn btn-error" onClick={onReset}>Reset All Data</button>
+                            <p className="text-xs text-base-content/50 mt-1">This will reset your balance, theme, and settings.</p>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'log' && (
+                    <div className="py-4">
+                        <h3 className="font-bold text-lg text-secondary mb-2">Last 10 Spins</h3>
+                        <div className="text-xs space-y-1">
+                            {spinLog.length === 0 && <p>No spins recorded yet.</p>}
+                            {spinLog.map((log, index) => (
+                                <div key={index} className="p-2 bg-base-300 rounded-md">
+                                    Spin #{log.id}: {log.message} (Winnings: {log.winnings})
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="modal-action">
+                    <form method="dialog">
+                        <button className="btn btn-primary">Close</button>
+                    </form>
+                </div>
+            </div>
+        );
+      };
+
+
+      const App = () => {
+        const initialReels = React.useCallback(() => {
+            return REEL_STRIPS.map(strip => strip.map(value => SYMBOLS.find(s => s.value === value)));
+        }, []);
+
+        const [reels, setReels] = React.useState(initialReels);
+        const [positions, setPositions] = React.useState(Array(5).fill(0));
+        const [balance, setBalance] = usePersistentState("slotBalance", 1000);
+        const [winnings, setWinnings] = React.useState(0);
+        const [spinning, setSpinning] = React.useState(false);
+        const [message, setMessage] = React.useState("Good Luck!");
+        const [theme, setTheme] = usePersistentState("slotTheme", "synthwave");
+        const [settings, setSettings] = usePersistentState("slotSettings", { volume: -6 });
+        const [winningLinesDetails, setWinningLinesDetails] = React.useState([]);
+        const [spinLog, setSpinLog] = usePersistentState("slotSpinLog", []);
+        const [spinCount, setSpinCount] = usePersistentState("slotSpinCount", 0);
+        const [highlightedLines, setHighlightedLines] = React.useState([]);
+        const spinTimeoutRef = React.useRef();
+        const reelIntervalsRef = React.useRef([]);
+
+        React.useEffect(() => {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('slotTheme', JSON.stringify(theme));
+        }, [theme]);
+
+        React.useEffect(() => {
+            Tone.Destination.volume.value = settings.volume;
+        }, [settings.volume]);
+
+
+        const spinCost = 10;
+
+        const sounds = React.useMemo(() => ({
+                spin: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.005, decay: 0.1, sustain: 0 }}).toDestination(),
+                stop: new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, envelope: { attack: 0.001, decay: 0.2, sustain: 0.01 }}).toDestination(),
+                nearMiss: new Tone.MetalSynth({ frequency: 50, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5 }).toDestination(),
+                smallWin: new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1 }}).toDestination(),
+                bigWin: new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'fatsawtooth' }, envelope: { attack: 0.1, decay: 0.5, sustain: 0.2 }}).toDestination(),
+                jackpot: new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'triangle8' }, envelope: { attack: 0.2, decay: 1.5, sustain: 0.5 } }).toDestination(),
+        }), []);
+
+        const handleReset = () => {
+            localStorage.removeItem('slotBalance');
+            localStorage.removeItem('slotTheme');
+            localStorage.removeItem('slotSettings');
+            localStorage.removeItem('slotSpinLog');
+            localStorage.removeItem('slotSpinCount');
+            window.location.reload();
+        };
+
+        const spin = async () => {
+          if (spinning) { // Slam stop
+            clearTimeout(spinTimeoutRef.current);
+            reelIntervalsRef.current.forEach(interval => interval && clearInterval(interval));
+            reelIntervalsRef.current = [];
+            finishSpin(reels, positions);
+            return;
+          }
+
+          if (balance < spinCost) {
+            setMessage("Not enough credits!");
+            return;
+          }
+
+          await Tone.start();
+          setSpinning(true);
+          setBalance(balance - spinCost);
+          setWinnings(0);
+          setWinningLinesDetails([]);
+          setMessage("Spinning...");
+          setHighlightedLines([]);
+          sounds.spin.triggerAttack();
+
+          const finalPositions = reels.map(r => Math.floor(Math.random() * r.length));
+
+          // Set final positions immediately for slam stop to work
+          setPositions(finalPositions);
+
+          reelIntervalsRef.current = reels.map((reel, i) => {
+            let p = positions[i];
+            return setInterval(() => {
+                p = (p + 1) % reel.length;
+                setPositions(prev => {
+                    const next = [...prev];
+                    next[i] = p;
+                    return next;
+                });
+            }, 50 + i * 10);
+          });
+
+          spinTimeoutRef.current = setTimeout(() => {
+              reelIntervalsRef.current.forEach(interval => interval && clearInterval(interval));
+              reelIntervalsRef.current = [];
+              finishSpin(reels, finalPositions);
+          }, 2000 + Math.random() * 1000);
+        };
+
+        const finishSpin = (finalReels, finalPositions) => {
+          setPositions(finalPositions);
+          setSpinning(false);
+          checkWinnings(finalReels, finalPositions);
+        };
+
+        const checkWinnings = (currentReels, currentPositions) => {
+          let totalWinnings = 0;
+          let winMessage = "Try Again!";
+          let winningLinesCount = 0;
+          const winningLinesInfo = [];
+          let nearMiss = false;
+
+          for (const line of PAYLINES) {
+            const lineSymbols = line.map((pos, reelIndex) => {
+              const reel = currentReels[reelIndex];
+              const symbolIndex = (currentPositions[reelIndex] + pos) % reel.length;
+              return reel[symbolIndex];
+            });
+
+            const firstSymbol = lineSymbols[0];
+
+            // Check from left to right
+            let consecutiveCount = 0;
+            let currentSymbol = null;
+
+            if (firstSymbol.value === 'star') {
+                // find first non-wild to determine payline symbol
+                const firstNonWild = lineSymbols.find(s => s.value !== 'star');
+                if(firstNonWild) {
+                    currentSymbol = firstNonWild;
+                } else { // all wilds
+                    currentSymbol = SYMBOLS.find(s => s.value === 'star');
+                }
+            } else {
+                currentSymbol = firstSymbol;
+            }
+
+            for(let i = 0; i < lineSymbols.length; i++) {
+                if(lineSymbols[i].value === currentSymbol.value || lineSymbols[i].value === 'star') {
+                    consecutiveCount++;
+                } else {
+                    break;
+                }
+            }
+
+            if (currentSymbol && consecutiveCount > 1) {
+                const payout = currentSymbol.payout[consecutiveCount];
+                if (payout) {
+                    totalWinnings += payout;
+                    winningLinesCount++;
+                    const winningSymbolIndexesOnReels = line.slice(0, consecutiveCount).map((row, reelIdx) => {
+                        return (currentPositions[reelIdx] + row) % currentReels[reelIdx].length;
+                    });
+                    winningLinesInfo.push({line, count: consecutiveCount, indexes: winningSymbolIndexesOnReels});
+                } else if (consecutiveCount === 2 && (currentSymbol.value === 'seven' || currentSymbol.value === 'dollar')) {
+                    nearMiss = true;
+                }
+            }
+          }
+
+          if (totalWinnings > 0) {
+            if (totalWinnings >= 10000) {
+                sounds.jackpot.triggerAttackRelease(["C4", "E4", "G4", "C5"], "2s");
+                winMessage = `JACKPOT! You won ${totalWinnings}!`;
+            } else if (totalWinnings > 50) {
+                sounds.bigWin.triggerAttackRelease(["C4", "E4", "G4", "C5"], "0.4s");
+                winMessage = `Big Win! You won ${totalWinnings} on ${winningLinesCount} line(s)!`;
+            } else {
+                sounds.smallWin.triggerAttackRelease("C5", "0.2s");
+                winMessage = `You won ${totalWinnings} on ${winningLinesCount} line(s)!`;
+            }
+            setBalance(prev => prev + totalWinnings);
+            setWinnings(totalWinnings);
+            setWinningLinesDetails(winningLinesInfo);
+            setHighlightedLines(winningLinesInfo.map(info => info.line.slice(0, info.count)));
+          } else {
+            if(nearMiss) {
+                sounds.nearMiss.triggerAttackRelease("C2", "0.1");
+            }
+          }
+          setMessage(winMessage);
+          const newSpinId = spinCount + 1;
+          setSpinCount(newSpinId);
+          setSpinLog(prevLog => [{ id: newSpinId, message: winMessage, winnings: totalWinnings }, ...prevLog].slice(0, 10));
+        };
+
+        return (
+          <div className="flex flex-col items-center justify-center min-h-screen bg-base-100 text-base-content font-mono p-4">
+            <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+                <button className="btn btn-secondary" onClick={()=>document.getElementById('paytable_modal').showModal()}>
+                    <i className="fas fa-table-list"></i> Pay Table
+                </button>
+                <button className="btn btn-ghost" onClick={()=>document.getElementById('settings_modal').showModal()}>
+                    <i className="fas fa-gear"></i>
+                </button>
+                <select className="select select-bordered" value={theme} onChange={e => setTheme(e.target.value)}>
+                    {THEMES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                </select>
+            </div>
+
+            <dialog id="paytable_modal" className="modal">
+                <PayTable />
+            </dialog>
+
+            <dialog id="settings_modal" className="modal">
+                <SettingsModal settings={settings} onSettingsChange={setSettings} onReset={handleReset} spinLog={spinLog} />
+            </dialog>
+
+            <div className="slot-machine border-8 border-primary bg-base-200 p-8 rounded-2xl shadow-lg relative">
+              <h1 className="text-5xl font-bold text-center mb-4 text-secondary tracking-widest">RETRO SLOTS</h1>
+
+              <div className="flex justify-center gap-4 mb-6 relative">
+                {reels.map((reelSymbols, i) => {
+                    const winningSymbolsOnReel = winningLinesDetails
+                        .filter(lineDetail => i < lineDetail.count)
+                        .map(lineDetail => lineDetail.indexes[i]);
+
+                    return <Reel key={i} reelSymbols={reelSymbols} position={positions[i]} isSpinning={spinning} winningSymbols={winningSymbolsOnReel} />
+                })}
+                <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox="0 0 464 240">
+                    {highlightedLines.map((line, index) => {
+                        const points = line.map((row, reelIndex) => {
+                            const x = reelIndex * (80 + 16) + 40; // reel width + gap
+                            const y = row * 80 + 40; // symbol height
+                            return `${x},${y}`;
+                        }).join(' ');
+                        return <polyline key={index} points={points} fill="none" stroke="rgba(255, 255, 0, 0.7)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />;
+                    })}
+                </svg>
+              </div>
+
+              <div className="text-center text-2xl mb-4 p-2 bg-base-300 rounded-lg border-2 border-secondary min-h-[3rem]">
+                <h2>{message}</h2>
+              </div>
+
+              <div className="flex justify-around items-center mb-6 text-2xl">
+                <div>Balance: <span className="font-bold text-accent">{balance}</span></div>
+                <div>Winnings: <span className="font-bold text-accent">{winnings}</span></div>
+              </div>
+
+              <button
+                className="btn btn-primary btn-lg w-full text-3xl h-20"
+                onClick={spin}
+                disabled={spinning && reelIntervalsRef.current.length === 0}
+              >
+                {spinning && reelIntervalsRef.current.length > 0 ? (
+                  <><i className="fas fa-hand-paper"></i> SLAM STOP</>
+                ) : spinning ? (
+                  <span className="loading loading-spinner"></span>
+                ) : (
+                  <><i className="fas fa-play"></i> SPIN ({spinCost} CREDITS)</>
+                )}
+              </button>
+            </div>
+            <footer className="text-center mt-4 text-sm">
+              <p>Copyright (c) 2025 Drake Axelrod</p>
+            </footer>
+          </div>
+        );
+      };
+    </script>
+
+    <!-- ReactDOM Render Application -->
+    <script type="text/babel">
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
