@@ -30,8 +30,8 @@ Each file in this repository is a standalone web app. Just download and open in 
 
 1. Clone or download this repo:
    ```bash
-   git clone https://github.com/your-username/single-file-web-apps.git
-  ```
+   git clone https://github.com/drakeaxelrod/single-html-file-apps.git
+   ```
 2. Open any `.html` file in your browser.
 3. Enjoy the app!
 
